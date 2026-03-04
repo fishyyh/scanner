@@ -20,7 +20,7 @@ class FetchSite(BaseThread):
         self.fingerprint_list = load_fingerprint()
         self.http_timeout = http_timeout
         if http_timeout is None:
-            self.http_timeout = (10.1, 30.1)
+            self.http_timeout = (6, 15)
 
     def fetch_fingerprint(self, item, content):
         favicon_hash = item["favicon"].get("hash", 0)
@@ -142,7 +142,7 @@ def fetch_favicon(url):
     return f.run()
 
 
-def fetch_site(sites, concurrency=15, http_timeout=None):
+def fetch_site(sites, concurrency=30, http_timeout=None):
     # 更新数据库缓存
     from app.services import finger_db_cache
     finger_db_cache.update_cache()

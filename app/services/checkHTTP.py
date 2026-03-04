@@ -65,6 +65,6 @@ class CheckHTTP(BaseThread):
         return self.checkout_map
 
 
-def check_http(urls, concurrency=15):
+def check_http(urls, concurrency=30):
     c = CheckHTTP(urls, concurrency)
     return c.run()

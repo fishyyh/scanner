@@ -27,6 +27,14 @@ class NucleiScan(object):
         # 在nuclei 2.9.1 中 将-json 参数改成了 -jsonl 参数。
         self.nuclei_json_flag = None
 
+        # 根据目标数量动态调整并发和速率
+        target_count = len(targets)
+        max_concurrency = getattr(Config, 'NUCLEI_MAX_CONCURRENCY', 300)
+        max_rate = getattr(Config, 'NUCLEI_MAX_RATE', 1000)
+        self.concurrency = min(max(target_count * 5, 50), max_concurrency)
+        self.rate_limit = min(max(target_count * 10, 150), max_rate)
+        self.timeout_per_target = 120  # 每个目标120秒
+
     def _check_json_flag(self):
         json_flag = ["-json", "-jsonl"]
         for x in json_flag:
@@ -91,19 +99,28 @@ class NucleiScan(object):
     def exec_nuclei(self):
         self._gen_target_file()
 
+        # 动态计算超时时间：每个目标120秒，最少10分钟，最多24小时
+        total_timeout = max(len(self.targets) * self.timeout_per_target, 600)
+        total_timeout = min(total_timeout, 24 * 60 * 60)
+
         command = [self.nuclei_bin_path, "-duc",
-                   "-tags cve",
-                   "-severity low,medium,high,critical",
-                   "-type http",
-                   "-l {}".format(self.nuclei_target_path),
+                   "-timeout", "8",
+                   "-c", str(self.concurrency),
+                   "-rl", str(self.rate_limit),
+                   "-bs", str(min(self.concurrency, 150)),  # bulk-size 批量请求
+                   "-retries", "1",
+                   "-s", "critical,high,medium,low",
+                   "-l", self.nuclei_target_path,
                    self.nuclei_json_flag,  # 在nuclei 2.9.1 中 将 -json 参数改成了 -jsonl 参数
                    "-stats",
-                   "-stats-interval 60",
-                   "-o {}".format(self.nuclei_result_path),
+                   "-stats-interval", "60",
+                   "-o", self.nuclei_result_path,
                    ]
 
+        logger.info("nuclei concurrency:{} rate_limit:{} timeout:{}s targets:{}".format(
+            self.concurrency, self.rate_limit, total_timeout, len(self.targets)))
         logger.info(" ".join(command))
-        utils.exec_system(command, timeout=96*60*60)
+        utils.exec_system(command, timeout=total_timeout)
 
     def run(self):
         if not self.check_have_nuclei():

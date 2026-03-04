@@ -45,6 +45,6 @@ class SiteScreenshot(BaseThread):
         logger.info("end screen shot elapse {}".format(elapse))
 
 
-def site_screenshot(sites, concurrency = 3, capture_dir="./"):
+def site_screenshot(sites, concurrency = 6, capture_dir="./"):
     s = SiteScreenshot(sites, concurrency = concurrency, capture_dir = capture_dir)
     s.run()

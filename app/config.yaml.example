@@ -1,6 +1,7 @@
 
 CELERY:
-  BROKER_URL : "amqp://arl:arlpassword@127.0.0.1:5672/arlv2host"
+  # 部署时自动生成，请勿手动修改
+  BROKER_URL : "amqp://arl:CHANGE_ME@127.0.0.1:5672/arlv2host"
 
 
 MONGO:
@@ -119,6 +120,8 @@ ARL:
   AUTH: true
   #API 认证key, 可以访问api/doc查看文档
   API_KEY: ""
+  # 密码加盐，部署时自动生成，请勿手动修改
+  PASSWORD_SALT: "CHANGE_ME"
   BLACK_IPS:
   ## 禁止域名，不可为空数组
   FORBIDDEN_DOMAINS:
@@ -133,6 +136,18 @@ ARL:
   DOMAIN_BRUTE_CONCURRENT: 300
   #组合生成的域名爆破并发数
   ALT_DNS_CONCURRENT: 1500
+
+  # *** 扫描性能优化配置 ***
+  #端口扫描并发数（默认64，可根据网络带宽调整）
+  PORT_PARALLELISM: 64
+  #端口扫描最低速率（默认256，带宽大可调至512+）
+  PORT_MIN_RATE: 256
+  #HTTP站点并发数（默认30）
+  SITE_CONCURRENCY: 30
+  #Nuclei最大并发数（默认300）
+  NUCLEI_MAX_CONCURRENCY: 300
+  #Nuclei最大速率（默认1000 req/s）
+  NUCLEI_MAX_RATE: 1000
 
 
 

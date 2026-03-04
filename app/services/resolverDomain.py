@@ -47,6 +47,6 @@ class ResolverDomain(BaseThread):
         return self.resolver_map
 
 
-def resolver_domain(domains, concurrency=15):
+def resolver_domain(domains, concurrency=30):
     r = ResolverDomain(domains, concurrency)
     return r.run()

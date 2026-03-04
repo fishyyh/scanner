@@ -44,7 +44,7 @@ RUN curl https://ssl-config.mozilla.org/ffdhe2048.txt -o /etc/ssl/certs/dhparam.
 
 COPY requirements.txt requirements.txt
 
-RUN pip3.6 config set global.index-url https://mirrors.adysec.com/language/pypi
+RUN pip3.6 config set global.index-url https://pypi.org/simple
 
 COPY docker/GeoLite2/ /data/GeoLite2/
 

@@ -12,13 +12,13 @@ class PortScan:
                  ):
         self.targets = " ".join(targets)
         self.ports = ports
-        self.max_host_group = 32
+        self.max_host_group = 64
         self.alive_port = "22,80,443,843,3389,8007-8011,8443,9090,8080-8091,8093,8099,5000-5004,2222,3306,1433,21,25"
         self.nmap_arguments = "-sT -n --open"
-        self.max_retries = 3
-        self.host_timeout = 60*5
-        self.parallelism = port_parallelism  # 默认 32
-        self.min_rate = port_min_rate  # 默认64
+        self.max_retries = 2
+        self.host_timeout = 60*4
+        self.parallelism = port_parallelism  # 默认 64
+        self.min_rate = port_min_rate  # 默认 256
         self.exclude_ports = exclude_ports
 
         if service_detect:
@@ -37,9 +37,9 @@ class PortScan:
                 self.nmap_arguments += " -Pn"
 
         if self.ports == "0-65535":
-            self.max_host_group = 2
-            self.min_rate = max(self.min_rate, 800)
-            self.parallelism = max(self.parallelism, 128)
+            self.max_host_group = 4
+            self.min_rate = max(self.min_rate, 1200)
+            self.parallelism = max(self.parallelism, 256)
 
             self.nmap_arguments += " -PE -PS{}".format(self.alive_port)
             self.host_timeout += 60 * 5
@@ -112,7 +112,11 @@ class PortScan:
 
 
 def port_scan(targets, ports=Config.TOP_10, service_detect=False, os_detect=False,
-              port_parallelism=32, port_min_rate=64, custom_host_timeout=None, exclude_ports=None):
+              port_parallelism=None, port_min_rate=None, custom_host_timeout=None, exclude_ports=None):
+    if port_parallelism is None:
+        port_parallelism = getattr(Config, 'PORT_PARALLELISM', 64)
+    if port_min_rate is None:
+        port_min_rate = getattr(Config, 'PORT_MIN_RATE', 256)
     targets = list(set(targets))
     targets = list(filter(utils.not_in_black_ips, targets))
     ps = PortScan(targets=targets, ports=ports, service_detect=service_detect, os_detect=os_detect,

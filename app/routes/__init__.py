@@ -328,3 +328,4 @@ from .task_schedule import ns as task_schedule_ns
 from .nuclei_result import ns as nuclei_result_ns
 from .wih import ns as wih_ns
 from .assetWih import ns as asset_wih_ns
+from .vuln_export import ns as vuln_export_ns

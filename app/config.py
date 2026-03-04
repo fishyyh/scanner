@@ -6,10 +6,13 @@ basedir = os.path.abspath(os.path.dirname(__file__))
 
 
 class Config(object):
-    CELERY_BROKER_URL = "amqp://arl:arlpassword@127.0.0.1:5672/arlv2host"
+    CELERY_BROKER_URL = ""
 
     MONGO_DB = 'ARLV2'
     MONGO_URL = 'mongodb://127.0.0.1:27017/'
+
+    # 密码加盐，部署时自动生成
+    PASSWORD_SALT = ''
 
     TMP_PATH = os.path.join(basedir, 'tmp')
     if not os.path.exists(TMP_PATH):
@@ -88,6 +91,18 @@ class Config(object):
     # 代理地址
     PROXY_URL = ""
 
+    # *** 扫描性能配置 ***
+    # 端口扫描并发数
+    PORT_PARALLELISM = 64
+    # 端口扫描最低速率
+    PORT_MIN_RATE = 256
+    # HTTP 站点并发数
+    SITE_CONCURRENCY = 30
+    # Nuclei 最大并发数
+    NUCLEI_MAX_CONCURRENCY = 300
+    # Nuclei 最大速率
+    NUCLEI_MAX_RATE = 1000
+
     QUERY_PLUGIN_CONFIG = dict()
 
     WEB_HOOK_URL = ""
@@ -121,6 +136,10 @@ try:
     Config.AUTH = y["ARL"]["AUTH"]
     Config.API_KEY = y["ARL"]["API_KEY"]
     Config.BLACK_IPS = y["ARL"]["BLACK_IPS"]
+
+    # *** 密码加盐配置 ***
+    if y["ARL"].get("PASSWORD_SALT"):
+        Config.PASSWORD_SALT = y["ARL"]["PASSWORD_SALT"]
 
     # *** TOP 10 端口设置 ***
     if y["ARL"].get("PORT_TOP_10"):
@@ -183,6 +202,18 @@ try:
     if alt_dns_concurrent:
         int(alt_dns_concurrent)
         Config.ALT_DNS_CONCURRENT = alt_dns_concurrent
+
+    # *** 扫描性能配置 ***
+    if y["ARL"].get("PORT_PARALLELISM"):
+        Config.PORT_PARALLELISM = int(y["ARL"]["PORT_PARALLELISM"])
+    if y["ARL"].get("PORT_MIN_RATE"):
+        Config.PORT_MIN_RATE = int(y["ARL"]["PORT_MIN_RATE"])
+    if y["ARL"].get("SITE_CONCURRENCY"):
+        Config.SITE_CONCURRENCY = int(y["ARL"]["SITE_CONCURRENCY"])
+    if y["ARL"].get("NUCLEI_MAX_CONCURRENCY"):
+        Config.NUCLEI_MAX_CONCURRENCY = int(y["ARL"]["NUCLEI_MAX_CONCURRENCY"])
+    if y["ARL"].get("NUCLEI_MAX_RATE"):
+        Config.NUCLEI_MAX_RATE = int(y["ARL"]["NUCLEI_MAX_RATE"])
 
     # *** 代理配置 ***
     if y.get("PROXY"):

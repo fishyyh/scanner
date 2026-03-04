@@ -1,9 +1,10 @@
 CELERY:
-  BROKER_URL : "amqp://arl:arlpassword@127.0.0.1:5672/arlv2host"
+  # 部署时自动生成，请勿手动修改
+  BROKER_URL : "amqp://arl:CHANGE_ME@127.0.0.1:5672/arlv2host"
 
 
 MONGO:
-  URI : 'mongodb://admin:admin@127.0.0.1:27017/'
+  URI : 'mongodb://admin:CHANGE_ME@127.0.0.1:27017/'
   DB : 'arl'
 
 
@@ -120,6 +121,8 @@ ARL:
   AUTH: true
   #API 认证key, 可以访问api/doc查看文档
   API_KEY: ""
+  # 密码加盐，部署时自动生成
+  PASSWORD_SALT: "CHANGE_ME"
   BLACK_IPS:
     #- 10.0.0.0/8
     #- 192.168.0.0/16

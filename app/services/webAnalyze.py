@@ -34,7 +34,7 @@ class WebAnalyze(BaseThread):
         return self.analyze_map
 
 
-def web_analyze(sites, concurrency=3):
+def web_analyze(sites, concurrency=6):
     s = WebAnalyze(sites, concurrency=concurrency)
     return s.run()
 

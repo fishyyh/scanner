@@ -4,7 +4,7 @@ from app.config import Config
 from . import gen_md5, random_choices
 from .conn import conn_db
 
-salt = 'arlsalt!@#'
+salt = Config.PASSWORD_SALT
 
 def user_login(username = None, password = None):
     if not username or not password:
