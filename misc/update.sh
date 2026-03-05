@@ -1,5 +1,5 @@
 systemctl stop arl-*
-chroot /opt/
+cd /opt/
 rm -rf ARLbak
 mv ARL ARLbak
 mv scaner/ ARL
