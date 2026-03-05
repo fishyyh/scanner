@@ -76,8 +76,6 @@ def get_rule(token):
 					elif i['location']=='body':
 						name = i['cms']
 						rule = 'body="'+keyword+'"'
-					else:
-						print(i)
 				else:
 					pass
 				update_data(name,rule,token)

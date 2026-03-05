@@ -193,13 +193,12 @@ class WebSiteFetch(object):
             self.available_sites.append(curr_site)
 
     def file_leak(self):
-        for site in self.poc_sites:
-            pages = services.file_leak([site], utils.load_file(Config.FILE_LEAK_TOP_2k))
-            for page in pages:
-                item = page.dump_json()
-                item["task_id"] = self.task_id
-                item["site"] = site
-                utils.conn_db('fileleak').insert_one(item)
+        pages = services.file_leak(list(self.poc_sites), utils.load_file(Config.FILE_LEAK_TOP_2k))
+        for page in pages:
+            item = page.dump_json()
+            item["task_id"] = self.task_id
+            item["site"] = page.url.scope
+            utils.conn_db('fileleak').insert_one(item)
 
     @property
     def poc_sites(self):

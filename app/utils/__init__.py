@@ -93,8 +93,18 @@ def get_logger():
     return logging.getLogger('arlv2')
 
 
+_dns_cache = {}
+_dns_cache_lock = __import__('threading').Lock()
+
+
 def get_ip(domain, log_flag=True):
     domain = domain.strip()
+
+    # DNS 缓存查找
+    with _dns_cache_lock:
+        if domain in _dns_cache:
+            return _dns_cache[domain]
+
     logger = get_logger()
     ips = []
     try:
@@ -110,6 +120,10 @@ def get_ip(domain, log_flag=True):
     except Exception as e:
         if log_flag:
             logger.warning("{} {}".format(domain, e))
+
+    # 缓存结果
+    with _dns_cache_lock:
+        _dns_cache[domain] = ips
 
     return ips
 

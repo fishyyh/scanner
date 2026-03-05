@@ -3,6 +3,7 @@ from pyquery import PyQuery as pq
 import binascii
 from urllib.parse import urljoin, urlparse
 from urllib3.util.url import parse_url, get_host
+from concurrent.futures import ThreadPoolExecutor, TimeoutError
 import mmh3
 from app import utils
 from .baseThread import BaseThread
@@ -20,7 +21,9 @@ class FetchSite(BaseThread):
         self.fingerprint_list = load_fingerprint()
         self.http_timeout = http_timeout
         if http_timeout is None:
-            self.http_timeout = (6, 15)
+            self.http_timeout = (5, 10)
+        # favicon 超时更短，非关键数据
+        self.favicon_timeout = (3, 6)
 
     def fetch_fingerprint(self, item, content):
         favicon_hash = item["favicon"].get("hash", 0)
@@ -54,7 +57,18 @@ class FetchSite(BaseThread):
 
         _, hostname, _ = get_host(site)
 
-        conn = utils.http_req(site, timeout=self.http_timeout)
+        # 并行获取页面内容和 favicon
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            future_conn = executor.submit(utils.http_req, site, timeout=self.http_timeout)
+            future_favicon = executor.submit(fetch_favicon, site, self.favicon_timeout)
+
+            conn = future_conn.result()
+            try:
+                favicon = future_favicon.result(timeout=self.favicon_timeout[1] + 2)
+            except (TimeoutError, Exception) as e:
+                logger.debug("favicon timeout on {}".format(site))
+                favicon = {}
+
         item = {
             "site": site[:200],
             "hostname": hostname,
@@ -65,7 +79,7 @@ class FetchSite(BaseThread):
             "http_server": conn.headers.get("Server", ""),
             "body_length": len(conn.content),
             "finger": [],
-            "favicon": fetch_favicon(site)
+            "favicon": favicon
         }
 
         self.fetch_fingerprint(item, content=conn.content)
@@ -137,8 +151,8 @@ def same_netloc_and_scheme(u1, u2):
     return False
 
 
-def fetch_favicon(url):
-    f = FetchFavicon(url)
+def fetch_favicon(url, timeout=None):
+    f = FetchFavicon(url, timeout=timeout)
     return f.run()
 
 
@@ -152,10 +166,10 @@ def fetch_site(sites, concurrency=30, http_timeout=None):
 
 
 class FetchFavicon(object):
-    def __init__(self, url):
+    def __init__(self, url, timeout=None):
         self.url = url
         self.favicon_url = None
-        pass
+        self.timeout = timeout or (3, 6)
 
     def build_result(self, data):
         result = {
@@ -188,7 +202,7 @@ class FetchFavicon(object):
         return result
 
     def get_favicon_data(self, favicon_url):
-        conn = http_req(favicon_url)
+        conn = http_req(favicon_url, timeout=self.timeout)
         if conn.status_code != 200:
             return
 
@@ -211,7 +225,7 @@ class FetchFavicon(object):
         return "".join(pieces)
 
     def find_icon_url_from_html(self):
-        conn = http_req(self.url)
+        conn = http_req(self.url, timeout=self.timeout)
         if b"<link" not in conn.content:
             return
         d = pq(conn.content)

@@ -89,13 +89,28 @@ def transform_rule_map(rule):
 web_app_rules = json.loads("\n".join(load_file(Config.web_app_rule)))
 
 
-# 这里只是加载本地指纹规则
+# 这里只是加载本地指纹规则，预编码 html 关键词避免重复计算
 def load_fingerprint():
     items = []
     for rule in web_app_rules:
         new_rule = dict()
         new_rule["name"] = rule
-        new_rule["rule"] = web_app_rules[rule]
+        raw_rule = web_app_rules[rule]
+
+        # 预编码 html 关键词为 bytes，避免每次匹配都重复编码
+        html_encoded = []
+        for html in raw_rule.get("html", []):
+            encoded_pair = [html.encode("utf-8")]
+            try:
+                gbk = html.encode("gbk")
+                if gbk != encoded_pair[0]:
+                    encoded_pair.append(gbk)
+            except Exception:
+                pass
+            html_encoded.append(encoded_pair)
+
+        new_rule["rule"] = raw_rule
+        new_rule["html_encoded"] = html_encoded
         items.append(new_rule)
     return items
 
@@ -108,19 +123,16 @@ def fetch_fingerprint(content, headers, title, favicon_hash, finger_list):
         rule = finger["rule"]
         rule_name = finger["name"]
         match_flag = False
-        for html in rule["html"]:
-            if html.encode("utf-8") in content:
-                finger_name_list.append(rule_name)
-                match_flag = True
-                break
 
-            try:
-                if html.encode("gbk") in content:
+        # 使用预编码的 bytes 直接匹配，跳过重复 encode
+        for encoded_pair in finger.get("html_encoded", []):
+            for encoded_html in encoded_pair:
+                if encoded_html in content:
                     finger_name_list.append(rule_name)
                     match_flag = True
                     break
-            except Exception as e:
-                logger.debug("error on fetch_fingerprint {} to gbk".format(html))
+            if match_flag:
+                break
 
         if match_flag:
             continue

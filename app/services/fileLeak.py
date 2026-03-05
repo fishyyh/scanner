@@ -1,5 +1,6 @@
 import time
 import difflib
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import urlparse, urljoin
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -15,7 +16,7 @@ min_length = 100
 max_length = 50*1024
 read_timeout = 30
 bool_ratio = 0.8
-concurrency_count = 15
+concurrency_count = 30
 
 class URL():
     def __init__(self, url, payload):
@@ -67,7 +68,7 @@ class URL():
         return self._path
 
 class HTTPReq():
-    def __init__(self, url: URL , read_timeout = 60, max_length = 50*1024):
+    def __init__(self, url: URL , read_timeout = 15, max_length = 50*1024):
         self.url = url
         self.read_timeout = read_timeout
         self.max_length = max_length
@@ -76,19 +77,19 @@ class HTTPReq():
         self.content = None
 
     def req(self):
-        content = b''
+        buf = bytearray()
         conn = utils.http_req(self.url.url, 'get', timeout=(3, 6), stream=True)
         self.conn = conn
         start_time = time.time()
-        for data in conn.iter_content(chunk_size=512):
+        for data in conn.iter_content(chunk_size=4096):
             if time.time() - start_time >= self.read_timeout:
                 break
-            content += data
-            if len(content) >= int(self.max_length):
+            buf.extend(data)
+            if len(buf) >= int(self.max_length):
                 break
 
         self.status_code = conn.status_code
-        self.content = content[:self.max_length]
+        self.content = bytes(buf[:self.max_length])
 
         content_len = self.conn.headers.get("Content-Length", len(self.content))
         self.conn.headers["Content-Length"] = content_len
@@ -350,6 +351,7 @@ class FileLeak(BaseThread):
         return False
 
     def check_page_200(self):
+        check_tasks = []
         for page in self.page200_set:
             if page in self.page404_set:
                 continue
@@ -359,14 +361,27 @@ class FileLeak(BaseThread):
                 continue
 
             url_404_list = self.gen_check_url(page.url)
+            check_tasks.append((page, url_404_list))
 
+        def _verify(task):
+            page, url_404_list = task
+            results = []
             for url_404 in url_404_list:
-                page_404 = Page(self.http_req(url_404))
-                self.page404_set.add(page_404)
+                try:
+                    page_404 = Page(self.http_req(url_404))
+                    results.append((page, page_404))
+                except Exception as e:
+                    logger.warning("check_page_200 error: {}".format(e))
+            return results
 
-                if page_404.is_302() and page_404.location_url.endswith(page_404.url.payload + "/"):
-                    self.page404_set.add(page)
-                    self.skip_302 = True
+        with ThreadPoolExecutor(max_workers=min(len(check_tasks), 10) if check_tasks else 1) as executor:
+            for verify_results in executor.map(_verify, check_tasks):
+                for page, page_404 in verify_results:
+                    self.page404_set.add(page_404)
+
+                    if page_404.is_302() and page_404.location_url.endswith(page_404.url.payload + "/"):
+                        self.page404_set.add(page)
+                        self.skip_302 = True
 
         self.page200_set -= self.page404_set
 
@@ -522,22 +537,24 @@ def file_leak(targets, dicts, gen_dict = True) -> List[Page]:
     for url in all_gen_url:
         map_url[url.scope].add(url)
 
-    cnt = 0
-    total = len(map_url)
     ret = []
-    for target in map_url:
-        cnt += 1
 
+    def _scan_target(target):
         try:
             f = FileLeak(target, map_url[target], concurrency_count)
             pages = f.run()
             for page in pages:
                 logger.info("found => {}".format(page))
-
-            ret.extend(pages)
+            return list(pages)
         except Exception as e:
             logger.info("error on {}, {}".format(target, e))
             logger.exception(e)
+            return []
+
+    max_workers = min(len(map_url), 6) if map_url else 1
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        for pages in executor.map(_scan_target, map_url):
+            ret.extend(pages)
 
     return ret
 

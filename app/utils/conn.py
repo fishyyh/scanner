@@ -1,6 +1,8 @@
 import urllib3
 import time
+import threading
 import requests
+from requests.adapters import HTTPAdapter
 from app.config import Config
 from pymongo import MongoClient
 from requests.exceptions import ReadTimeout
@@ -21,6 +23,23 @@ proxies = {
 
 SET_PROXY = False
 
+# 线程本地 Session，复用 TCP 连接
+_thread_local = threading.local()
+
+
+def _get_session():
+    if not hasattr(_thread_local, 'session'):
+        session = requests.Session()
+        adapter = HTTPAdapter(
+            pool_connections=40,
+            pool_maxsize=40,
+            max_retries=0
+        )
+        session.mount('http://', adapter)
+        session.mount('https://', adapter)
+        _thread_local.session = session
+    return _thread_local.session
+
 
 # requests/models.py:824
 def patch_content(response, timeout=None):
@@ -34,12 +53,12 @@ def patch_content(response, timeout=None):
         if response.status_code == 0 or response.raw is None:
             response._content = None
         else:
-            body = b''
+            chunks = bytearray()
             for part in response.iter_content(CONTENT_CHUNK_SIZE):
-                body += part
+                chunks.extend(part)
                 if timeout is not None and time.time() - start_at >= timeout:
                     raise ReadTimeout(f"patch_content read http response timeout: {timeout}")
-            response._content = body
+            response._content = bytes(chunks)
     response._content_consumed = True
     # don't need to release the connection; that's been handled by urllib3
     # since we exhausted the data.
@@ -64,7 +83,8 @@ def http_req(url, method='get', **kwargs):
         proxies['http'] = Config.PROXY_URL
         kwargs["proxies"] = proxies
 
-    conn = getattr(requests, method)(url, **kwargs)
+    session = _get_session()
+    conn = getattr(session, method)(url, **kwargs)
 
     timeout = kwargs.get("timeout")
     if len(timeout) > 1 and timeout[1]:
