@@ -66,6 +66,7 @@ def patch_content(response, timeout=None):
 
 
 def http_req(url, method='get', **kwargs):
+    no_content = kwargs.pop('no_content', False)
     kwargs.setdefault('verify', False)
     kwargs.setdefault('timeout', (10.1, 30.1))
     kwargs.setdefault('allow_redirects', False)
@@ -86,11 +87,11 @@ def http_req(url, method='get', **kwargs):
     session = _get_session()
     conn = getattr(session, method)(url, **kwargs)
 
-    timeout = kwargs.get("timeout")
-    if len(timeout) > 1 and timeout[1]:
-        timeout = timeout[1]
-
-    patch_content(conn, timeout)
+    if not no_content:
+        timeout = kwargs.get("timeout")
+        if len(timeout) > 1 and timeout[1]:
+            timeout = timeout[1]
+        patch_content(conn, timeout)
 
     return conn
 

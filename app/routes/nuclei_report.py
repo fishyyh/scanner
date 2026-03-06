@@ -1,4 +1,8 @@
 # coding: utf-8
+import csv
+import io
+import time
+from urllib.parse import quote
 from flask import Blueprint, make_response, request
 from app.utils import conn_db
 
@@ -87,7 +91,7 @@ def nuclei_report(task_id):
             f'style="{btn_style}">{sv.upper()}({cnt})</a>'
         )
 
-    csv_url = f'/api/vuln_export/csv/?task_id={task_id}'
+    csv_url = f'/nuclei_report/{task_id}/export_csv'
 
     html = f'''<!DOCTYPE html>
 <html lang="zh-CN">
@@ -161,4 +165,40 @@ a{{color:#1890ff}}
 
     response = make_response(html)
     response.headers['Content-Type'] = 'text/html; charset=utf-8'
+    return response
+
+
+@nuclei_report_bp.route('/nuclei_report/<task_id>/export_csv')
+def nuclei_report_export_csv(task_id):
+    query = {'task_id': task_id}
+    severity_filter = request.args.get('severity', '').strip().lower()
+    if severity_filter:
+        query['vuln_severity'] = severity_filter
+
+    items = list(conn_db('nuclei_result').find(query).sort('_id', -1))
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow([
+        '模版ID', '漏洞名称', '漏洞等级', '漏洞URL', '目标', 'curl命令', '发现时间'
+    ])
+    for item in items:
+        writer.writerow([
+            item.get('template_id', ''),
+            item.get('vuln_name', ''),
+            item.get('vuln_severity', ''),
+            item.get('vuln_url', ''),
+            item.get('target', ''),
+            item.get('curl_command', ''),
+            item.get('save_date', ''),
+        ])
+
+    csv_data = output.getvalue()
+    output.close()
+
+    csv_bytes = b'\xef\xbb\xbf' + csv_data.encode('utf-8')
+    filename = "nuclei_report_{}.csv".format(int(time.time()))
+    response = make_response(csv_bytes)
+    response.headers['Content-Type'] = 'text/csv; charset=utf-8'
+    response.headers['Content-Disposition'] = 'attachment; filename={}'.format(quote(filename))
     return response
