@@ -110,6 +110,7 @@ class NucleiScan(object):
                    "-bs", str(min(self.concurrency, 150)),  # bulk-size 批量请求
                    "-retries", "1",
                    "-s", "critical,high,medium,low",
+                   "-etid",  "expired-ssl,self-signed-ssl",
                    "-l", self.nuclei_target_path,
                    self.nuclei_json_flag,  # 在nuclei 2.9.1 中 将 -json 参数改成了 -jsonl 参数
                    "-stats",

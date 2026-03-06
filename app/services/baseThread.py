@@ -18,10 +18,10 @@ class BaseThread(object):
         try:
             self.work(url)
         except requests.exceptions.RequestException as e:
-            pass
+            logger.warning("request error on {}: {}".format(url, e))
 
         except etree.Error as e:
-            pass
+            logger.debug("etree error on {} : {}".format(url, e))
 
         except Exception as e:
             logger.warning("error on {}".format(url))

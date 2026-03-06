@@ -1,9 +1,10 @@
 import time
+import threading
 from pyquery import PyQuery as pq
 import binascii
 from urllib.parse import urljoin, urlparse
 from urllib3.util.url import parse_url, get_host
-from concurrent.futures import ThreadPoolExecutor, TimeoutError
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import mmh3
 from app import utils
 from .baseThread import BaseThread
@@ -18,6 +19,7 @@ class FetchSite(BaseThread):
     def __init__(self, sites, concurrency=6, http_timeout=None):
         super().__init__(sites, concurrency)
         self.site_info_list = []
+        self._lock = threading.Lock()
         self.fingerprint_list = load_fingerprint()
         self.http_timeout = http_timeout
         if http_timeout is None:
@@ -25,7 +27,7 @@ class FetchSite(BaseThread):
         # favicon 超时更短，非关键数据
         self.favicon_timeout = (3, 6)
 
-    def fetch_fingerprint(self, item, content):
+    def _fetch_fingerprint(self, item, content):
         favicon_hash = item["favicon"].get("hash", 0)
         result = fetch_fingerprint(content=content, headers=item["headers"],
                                    title=item["title"], favicon_hash=favicon_hash,
@@ -57,21 +59,21 @@ class FetchSite(BaseThread):
 
         _, hostname, _ = get_host(site)
 
-        # 并行获取页面内容和 favicon
-        with ThreadPoolExecutor(max_workers=2) as executor:
-            future_conn = executor.submit(utils.http_req, site, timeout=self.http_timeout)
-            future_favicon = executor.submit(fetch_favicon, site, self.favicon_timeout)
+        # 获取页面内容，带重试
+        conn = None
+        for attempt in range(2):
+            try:
+                conn = utils.http_req(site, timeout=self.http_timeout)
+                break
+            except Exception as e:
+                if attempt == 0:
+                    logger.debug("retry fetch on {}: {}".format(site, e))
+                    time.sleep(0.5)
+                else:
+                    logger.warning("fetch failed on {} after retry: {}".format(site, e))
 
-            try:
-                conn = future_conn.result(timeout=self.http_timeout[1] + 5)
-            except (TimeoutError, Exception) as e:
-                logger.debug("conn timeout on {}".format(site))
-                return
-            try:
-                favicon = future_favicon.result(timeout=self.favicon_timeout[1] + 2)
-            except (TimeoutError, Exception) as e:
-                logger.debug("favicon timeout on {}".format(site))
-                favicon = {}
+        if conn is None:
+            return
 
         item = {
             "site": site[:200],
@@ -83,10 +85,10 @@ class FetchSite(BaseThread):
             "http_server": conn.headers.get("Server", ""),
             "body_length": len(conn.content),
             "finger": [],
-            "favicon": favicon
+            "favicon": {}
         }
 
-        self.fetch_fingerprint(item, content=conn.content)
+        self._fetch_fingerprint(item, content=conn.content)
         domain_parsed = utils.domain_parsed(hostname)
         if domain_parsed:
             item["fld"] = domain_parsed["fld"]
@@ -96,28 +98,80 @@ class FetchSite(BaseThread):
         else:
             item["ip"] = hostname
 
-        # 保存站点信息
+        # 保存站点信息（线程安全）
         if max_redirect == 5 or max_redirect == 1 \
                 or (conn.status_code != 301 and conn.status_code != 302):
-            self.site_info_list.append(item)
+            with self._lock:
+                self.site_info_list.append(item)
 
         if conn.status_code == 301 or conn.status_code == 302:
             url_302 = urljoin(site, conn.headers.get("Location", ""))
             url_302 = normal_url(url_302)
 
-            # 防御性编程，防止url过长
             if len(url_302) > 260:
                 return
 
             if url_302 != site and same_netloc_and_scheme(url_302, site):
                 self.work(url_302, max_redirect=max_redirect - 1)
 
+    def _batch_fetch_favicon(self):
+        """批量并发获取 favicon，不阻塞主抓取流程"""
+        sites_need_favicon = [(i, item["site"]) for i, item in enumerate(self.site_info_list)]
+        if not sites_need_favicon:
+            return
+
+        favicon_concurrency = min(len(sites_need_favicon), 20)
+
+        def _do_fetch(index_site):
+            idx, site = index_site
+            try:
+                return idx, fetch_favicon(site, self.favicon_timeout)
+            except Exception as e:
+                logger.debug("favicon error on {}: {}".format(site, e))
+                return idx, {}
+
+        with ThreadPoolExecutor(max_workers=favicon_concurrency) as executor:
+            futures = {executor.submit(_do_fetch, item): item for item in sites_need_favicon}
+            for future in as_completed(futures):
+                try:
+                    idx, favicon = future.result()
+                    item = self.site_info_list[idx]
+                    item["favicon"] = favicon
+                    # 用 favicon hash 补充指纹识别
+                    if favicon.get("hash"):
+                        favicon_hash = favicon["hash"]
+                        result = fetch_fingerprint(
+                            content=b"", headers=item["headers"],
+                            title=item["title"], favicon_hash=favicon_hash,
+                            finger_list=self.fingerprint_list)
+                        if result:
+                            known = {f["name"].lower() for f in item["finger"]}
+                            for name in result:
+                                if name.lower() not in known:
+                                    item["finger"].append({
+                                        "icon": "default.png",
+                                        "name": name,
+                                        "confidence": "80",
+                                        "version": "",
+                                        "website": "https://www.riskivy.com",
+                                        "categories": []
+                                    })
+                except Exception as e:
+                    logger.debug("favicon future error: {}".format(e))
+
     def run(self):
         t1 = time.time()
         logger.info("start fetch site {}".format(len(self.targets)))
         self._run()
+        t2 = time.time()
+        logger.info("page fetch done ({:.1f}s), start favicon for {} sites".format(
+            t2 - t1, len(self.site_info_list)))
+
+        # 页面全部抓完后，批量并发获取 favicon
+        self._batch_fetch_favicon()
+
         elapse = time.time() - t1
-        logger.info("end fetch site elapse {}".format(elapse))
+        logger.info("end fetch site elapse {:.1f}s".format(elapse))
 
         # 对站点信息自动打标签
         auto_tag(self.site_info_list)
@@ -160,11 +214,24 @@ def fetch_favicon(url, timeout=None):
     return f.run()
 
 
-def fetch_site(sites, concurrency=30, http_timeout=None):
+def fetch_site(sites, concurrency=None, http_timeout=None):
     # 更新数据库缓存
     from app.services import finger_db_cache
     finger_db_cache.update_cache()
 
+    # 根据目标数量动态调整并发：少量目标用小并发，大量目标提高并发
+    if concurrency is None:
+        target_count = len(sites)
+        if target_count <= 50:
+            concurrency = 15
+        elif target_count <= 200:
+            concurrency = 30
+        elif target_count <= 1000:
+            concurrency = 50
+        else:
+            concurrency = 80
+
+    logger.info("fetch_site targets:{} concurrency:{}".format(len(sites), concurrency))
     f = FetchSite(sites, concurrency=concurrency, http_timeout=http_timeout)
     return f.run()
 

@@ -31,8 +31,8 @@ def _get_session():
     if not hasattr(_thread_local, 'session'):
         session = requests.Session()
         adapter = HTTPAdapter(
-            pool_connections=40,
-            pool_maxsize=40,
+            pool_connections=80,
+            pool_maxsize=80,
             max_retries=0
         )
         session.mount('http://', adapter)
