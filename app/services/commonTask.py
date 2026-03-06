@@ -187,10 +187,13 @@ class WebSiteFetch(object):
 
     def fetch_site(self):
         # ***站点信息获取***
+        logger.info("fetch_site input sites:{} task_id:{}".format(len(self.sites), self.task_id))
         self.site_info_list = services.fetch_site(self.sites)
         for site_info in self.site_info_list:
             curr_site = site_info["site"]
             self.available_sites.append(curr_site)
+        logger.info("fetch_site result sites:{} -> available:{} task_id:{}".format(
+            len(self.sites), len(self.available_sites), self.task_id))
 
     def file_leak(self):
         pages = services.file_leak(list(self.poc_sites), utils.load_file(Config.FILE_LEAK_TOP_2k))
