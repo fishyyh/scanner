@@ -1,5 +1,7 @@
+import threading
+import collections
+import time
 import requests.exceptions
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from lxml import etree
 from app import utils
 from app.modules import DomainInfo
@@ -9,6 +11,7 @@ logger = utils.get_logger()
 class BaseThread(object):
     def __init__(self, targets, concurrency=6):
         self.concurrency = concurrency
+        self.semaphore = threading.Semaphore(concurrency)
         self.targets = targets
 
     def work(self, site):
@@ -21,7 +24,7 @@ class BaseThread(object):
             logger.warning("request error on {}: {}".format(url, e))
 
         except etree.Error as e:
-            logger.debug("etree error on {} : {}".format(url, e))
+            logger.debug("etree error on {}: {}".format(url, e))
 
         except Exception as e:
             logger.warning("error on {}".format(url))
@@ -30,29 +33,34 @@ class BaseThread(object):
         except BaseException as e:
             logger.warning("BaseException on {}".format(url))
             raise e
+        finally:
+            self.semaphore.release()
 
     def _run(self):
-        targets = []
+        deque = collections.deque()
+        cnt = 0
+
         for target in self.targets:
             if isinstance(target, str):
                 target = target.strip()
+
             if not target:
                 continue
-            targets.append(target)
 
-        total = len(targets)
-        with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
-            futures = {}
-            for cnt, target in enumerate(targets, 1):
-                logger.debug("[{}/{}] work on {}".format(cnt, total, target))
-                future = executor.submit(self._work, target)
-                futures[future] = target
+            cnt += 1
+            logger.debug("[{}/{}] work on {}".format(cnt, len(self.targets), target))
 
-            for future in as_completed(futures):
-                try:
-                    future.result()
-                except Exception as e:
-                    logger.warning("thread error: {}".format(e))
+            self.semaphore.acquire()
+            t1 = threading.Thread(target=self._work, args=(target,))
+            t1.daemon = True
+            t1.start()
+            deque.append(t1)
+
+        # 等待所有线程完成
+        for t in deque:
+            t.join(timeout=120)
+            if t.is_alive():
+                logger.warning("thread still alive after 120s")
 
 
 class ThreadMap(BaseThread):

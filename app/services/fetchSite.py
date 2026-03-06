@@ -53,24 +53,28 @@ class FetchSite(BaseThread):
         if finger:
             item["finger"] = finger
 
+    def _http_req_with_retry(self, url, retries=2):
+        """带重试的 HTTP 请求，确保网络异常不会直接丢失目标"""
+        last_err = None
+        for attempt in range(retries):
+            try:
+                return utils.http_req(url, timeout=self.http_timeout)
+            except Exception as e:
+                last_err = e
+                if attempt < retries - 1:
+                    logger.debug("retry fetch on {}: {}".format(url, e))
+                    time.sleep(0.5)
+
+        logger.warning("fetch failed on {} after {} retries: {}".format(url, retries, last_err))
+        return None
+
     def work(self, site, max_redirect=5):
         if max_redirect <= 0:
             return
 
         _, hostname, _ = get_host(site)
 
-        # 获取页面内容，带重试
-        conn = None
-        for attempt in range(2):
-            try:
-                conn = utils.http_req(site, timeout=self.http_timeout)
-                break
-            except Exception as e:
-                if attempt == 0:
-                    logger.debug("retry fetch on {}: {}".format(site, e))
-                    time.sleep(0.5)
-                else:
-                    logger.warning("fetch failed on {} after retry: {}".format(site, e))
+        conn = self._http_req_with_retry(site)
 
         if conn is None:
             return
