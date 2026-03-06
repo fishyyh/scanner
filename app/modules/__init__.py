@@ -33,6 +33,7 @@ class TaskStatus:
     DONE = "done"
     ERROR = "error"
     STOP = "stop"
+    PAUSED = "paused"
 
 
 class TaskScheduleStatus:

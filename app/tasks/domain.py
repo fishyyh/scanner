@@ -819,15 +819,51 @@ class DomainTask(CommonTask):
         logger.info("end run dns_query_plugin {}, result {}, real result:{}".format(
             self.base_domain, len(results), cnt))
 
-    def domain_fetch(self):
+    def _reload_domain_info_from_db(self):
+        """恢复任务时从数据库重载域名列表到内存"""
+        from app import modules as _modules
+        raw_list = list(utils.conn_db('domain').find({'task_id': self.task_id}))
+        for raw in raw_list:
+            item = {
+                "domain": raw.get("domain", ""),
+                "type": raw.get("type", "A"),
+                "record": raw.get("record", []),
+                "ips": raw.get("ips", [])
+            }
+            try:
+                self.domain_info_list.append(_modules.DomainInfo(**item))
+            except Exception:
+                pass
+
+    def _reload_ip_info_from_db(self):
+        """恢复任务时从数据库重载 IP 信息到内存"""
+        raw_list = list(utils.conn_db('ip').find({'task_id': self.task_id}))
+        for raw in raw_list:
+            port_info_objs = [modules.PortInfo(**p) for p in raw.get("port_info", [])]
+            item = {
+                "ip": raw.get("ip", ""),
+                "domain": raw.get("domain", []),
+                "port_info": port_info_objs,
+                "os_info": raw.get("os_info", {}),
+                "cdn_name": raw.get("cdn_name", "")
+            }
+            try:
+                ip_obj = modules.IPInfo(**item)
+                self.ip_info_list.append(ip_obj)
+                self.ip_set.add(ip_obj.ip)
+            except Exception:
+                pass
+
+    def domain_fetch(self, skip_services=None):
+        skip_services = skip_services or set()
         '''****域名爆破开始****'''
-        if self.options.get("domain_brute"):
+        if self.options.get("domain_brute") and "domain_brute" not in skip_services:
             self.update_task_field("status", "domain_brute")
             t1 = time.time()
             self.domain_brute()
             elapse = time.time() - t1
             self.update_services("domain_brute", elapse)
-        else:
+        elif not self.options.get("domain_brute") and "domain_brute" not in skip_services:
             domain_info = self.build_single_domain_info(self.base_domain)
             if domain_info:
                 self.domain_info_list.append(domain_info)
@@ -837,14 +873,14 @@ class DomainTask(CommonTask):
             return
 
         # ***域名插件查询****
-        if self.options.get("dns_query_plugin"):
+        if self.options.get("dns_query_plugin") and "dns_query_plugin" not in skip_services:
             self.update_task_field("status", "dns_query_plugin")
             t1 = time.time()
             self.dns_query_plugin()
             elapse = time.time() - t1
             self.update_services("dns_query_plugin", elapse)
 
-        if self.options.get("arl_search"):
+        if self.options.get("arl_search") and "arl_search" not in skip_services:
             self.update_task_field("status", "arl_search")
             t1 = time.time()
             self.arl_search()
@@ -852,18 +888,19 @@ class DomainTask(CommonTask):
             self.update_services("arl_search", elapse)
 
         '''***智能域名生成****'''
-        if self.options.get("alt_dns"):
+        if self.options.get("alt_dns") and "alt_dns" not in skip_services:
             self.update_task_field("status", "alt_dns")
             t1 = time.time()
             self.alt_dns()
             elapse = time.time() - t1
             self.update_services("alt_dns", elapse)
 
-    def start_ip_fetch(self):
+    def start_ip_fetch(self, skip_services=None):
+        skip_services = skip_services or set()
         self.gen_ipv4_map()
 
         '''***端口扫描开始***'''
-        if self.options.get("port_scan"):
+        if self.options.get("port_scan") and "port_scan" not in skip_services:
             self.update_task_field("status", "port_scan")
             t1 = time.time()
             self.port_scan()
@@ -871,7 +908,7 @@ class DomainTask(CommonTask):
             self.update_services("port_scan", elapse)
 
         '''***证书获取***'''
-        if self.options.get("ssl_cert"):
+        if self.options.get("ssl_cert") and "ssl_cert" not in skip_services:
             self.update_task_field("status", "ssl_cert")
             t1 = time.time()
             self.ssl_cert()
@@ -879,9 +916,10 @@ class DomainTask(CommonTask):
             self.update_services("ssl_cert", elapse)
 
         # 服务信息存储
-        if self.options.get("service_detection"):
+        if self.options.get("service_detection") and "port_scan" not in skip_services:
             self.save_service_info()
-        self.save_ip_info()
+        if "port_scan" not in skip_services:
+            self.save_ip_info()
 
     def start_site_fetch(self):
         self.update_task_field("status", "find_site")
@@ -919,10 +957,11 @@ class DomainTask(CommonTask):
             item["save_date"] = utils.curr_date()
             utils.conn_db('npoc_service').insert_one(item)
 
-    def start_poc_run(self):
+    def start_poc_run(self, skip_services=None):
         """poc run"""
+        skip_services = skip_services or set()
         """服务识别（python）实现"""
-        if self.options.get("npoc_service_detection"):
+        if self.options.get("npoc_service_detection") and "npoc_service_detection" not in skip_services:
             self.update_task_field("status", "npoc_service_detection")
             t1 = time.time()
             self.npoc_service_detection()
@@ -930,7 +969,7 @@ class DomainTask(CommonTask):
             self.update_services("npoc_service_detection", elapse)
 
         """ *** npoc 调用 """
-        if self.options.get("poc_config"):
+        if self.options.get("poc_config") and "poc_run" not in skip_services:
             self.update_task_field("status", "poc_run")
             t1 = time.time()
             self.web_site_fetch.risk_cruising(self.npoc_service_target_set)
@@ -938,7 +977,7 @@ class DomainTask(CommonTask):
             self.update_services("poc_run", elapse)
 
         """弱口令爆破服务"""
-        if self.options.get("brute_config"):
+        if self.options.get("brute_config") and "weak_brute" not in skip_services:
             self.update_task_field("status", "weak_brute")
             t1 = time.time()
             self.brute_config()
@@ -1055,20 +1094,39 @@ class DomainTask(CommonTask):
             domain_site_update(self.task_id, list(self.wih_domain_set), "wih")
 
     def run(self):
-        self.update_task_field("start_time", utils.curr_date())
+        from bson import ObjectId as _ObjectId
+        task_doc = utils.conn_db('task').find_one({'_id': _ObjectId(self.task_id)})
+        done_services = {s['name'] for s in task_doc.get('service', [])}
 
-        self.domain_fetch()
+        # 首次运行才设置 start_time
+        if not done_services:
+            self.update_task_field("start_time", utils.curr_date())
+
+        # 如果域名阶段部分已完成，从 DB 重载域名列表供后续阶段使用
+        domain_stages = {'domain_brute', 'dns_query_plugin', 'arl_search', 'alt_dns'}
+        if done_services & domain_stages:
+            self._reload_domain_info_from_db()
+
+        self.domain_fetch(skip_services=done_services)
 
         # 搜索引擎调用
-        self.search_engines()
+        if 'search_engines' not in done_services:
+            self.search_engines()
 
-        self.start_ip_fetch()
+        # 如果端口扫描已完成，从 DB 重载 ip_info_list 供后续阶段使用
+        ip_stages = {'port_scan', 'ssl_cert'}
+        if done_services & ip_stages:
+            self._reload_ip_info_from_db()
 
-        self.start_site_fetch()
+        self.start_ip_fetch(skip_services=done_services)
 
-        self.start_find_vhost()
+        if 'find_site' not in done_services:
+            self.start_site_fetch()
 
-        self.start_poc_run()
+        if 'findvhost' not in done_services:
+            self.start_find_vhost()
+
+        self.start_poc_run(skip_services=done_services)
 
         self.start_wih_domain_update()
 

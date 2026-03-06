@@ -2,6 +2,7 @@ from flask import Flask
 from flask_restx import Api
 
 from app import routes
+from app.routes.nuclei_report import nuclei_report_bp
 from app.utils import arl_update
 
 arl_app = Flask(__name__)
@@ -54,6 +55,8 @@ api.add_namespace(routes.wih_ns)
 api.add_namespace(routes.asset_wih_ns)
 api.add_namespace(routes.vuln_export_ns)
 
+
+arl_app.register_blueprint(nuclei_report_bp)
 
 arl_update()
 

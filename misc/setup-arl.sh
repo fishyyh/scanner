@@ -195,16 +195,22 @@ gen_random_password() {
   cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 20 | head -n 1
 }
 
-if [ ! -f "$ARL_CREDENTIALS_FILE" ]; then
-  echo "=== 首次部署，生成随机密码 ==="
+if [ -f app/config.yaml ]; then
+  echo "=== config.yaml 已存在，保留所有现有密钥 ==="
+  if [ -f "$ARL_CREDENTIALS_FILE" ]; then
+    source "$ARL_CREDENTIALS_FILE"
+  fi
+else
+  if [ ! -f "$ARL_CREDENTIALS_FILE" ]; then
+    echo "=== 首次部署，生成随机密码 ==="
 
-  ARL_MQ_PASSWORD=$(gen_random_password)
-  ARL_ADMIN_PASSWORD=$(gen_random_password)
-  ARL_PASSWORD_SALT=$(gen_random_password)
-  ARL_API_KEY=$(gen_random_password)
+    ARL_MQ_PASSWORD=$(gen_random_password)
+    ARL_ADMIN_PASSWORD=$(gen_random_password)
+    ARL_PASSWORD_SALT=$(gen_random_password)
+    ARL_API_KEY=$(gen_random_password)
 
-  # 保存到凭证文件（仅 root 可读）
-  cat > "$ARL_CREDENTIALS_FILE" <<CRED_EOF
+    # 保存到凭证文件（仅 root 可读）
+    cat > "$ARL_CREDENTIALS_FILE" <<CRED_EOF
 # ARL 自动生成的凭证，请妥善保管
 # 生成时间: $(date '+%Y-%m-%d %H:%M:%S')
 ARL_MQ_PASSWORD=${ARL_MQ_PASSWORD}
@@ -212,14 +218,15 @@ ARL_ADMIN_PASSWORD=${ARL_ADMIN_PASSWORD}
 ARL_PASSWORD_SALT=${ARL_PASSWORD_SALT}
 ARL_API_KEY=${ARL_API_KEY}
 CRED_EOF
-  chmod 600 "$ARL_CREDENTIALS_FILE"
-  echo "凭证已保存到 $ARL_CREDENTIALS_FILE"
-else
-  echo "=== 读取已有凭证 ==="
-fi
+    chmod 600 "$ARL_CREDENTIALS_FILE"
+    echo "凭证已保存到 $ARL_CREDENTIALS_FILE"
+  else
+    echo "=== 读取已有凭证 ==="
+  fi
 
-# 加载凭证
-source "$ARL_CREDENTIALS_FILE"
+  # 加载凭证
+  source "$ARL_CREDENTIALS_FILE"
+fi
 
 ##########################################################
 # 配置 RabbitMQ 和 MongoDB 用户
@@ -321,8 +328,6 @@ systemctl enable nginx
 systemctl restart nginx
 
 export ARL_ADMIN_PASSWORD
-python3.6 tools/add_finger.py
-python3.6 tools/add_finger_ehole.py
 
 echo ""
 echo "=========================================="

@@ -38,7 +38,12 @@ def sigterm_handler(signum, frame):
         query = {'celery_id': celery_id}
         update_data = {"$set": {"status": TaskStatus.STOP, "end_time": utils.curr_date()}}
         if routing_key == CeleryRoutingKey.ASSET_TASK:
-            utils.conn_db('task').update_one(query, update_data)
+            # 若已设为 paused，不覆盖为 stop
+            task_doc = utils.conn_db('task').find_one(query)
+            if task_doc and task_doc.get("status") == TaskStatus.PAUSED:
+                pass
+            else:
+                utils.conn_db('task').update_one(query, update_data)
         elif routing_key == CeleryRoutingKey.GITHUB_TASK:
             utils.conn_db('github_task').update_one(query, update_data)
     except Exception as e:

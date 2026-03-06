@@ -1,7 +1,7 @@
 systemctl stop arl-*
 cd /opt/
 rm -rf ARLbak
+cp ARL/app/config.yaml  scanner/app/config.yaml
 mv ARL ARLbak
-mv scaner/ ARL
-cp ARLbak/app/config.yaml ARL/app/
+mv scanner/ ARL
 systemctl restart arl-*

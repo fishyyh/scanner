@@ -213,6 +213,66 @@ def get_task_data(task_id):
     return task_data
 
 
+def pause_task(task_id):
+    """暂停任务：向 Celery 发 SIGTERM，保留 service 列表，设置状态为 paused"""
+    not_pausable = [TaskStatus.DONE, TaskStatus.STOP, TaskStatus.ERROR,
+                    TaskStatus.PAUSED, TaskStatus.WAITING]
+    task_data = get_task_data(task_id)
+    if not task_data:
+        raise Exception("没有找到 task_id: {}".format(task_id))
+    if task_data["status"] in not_pausable:
+        raise Exception("task_id: {} 当前状态不可暂停".format(task_id))
+
+    # 先设为 paused，sigterm_handler 会检查此状态，不再覆盖为 stop
+    utils.conn_db('task').update_one(
+        {'_id': bson.ObjectId(task_id)},
+        {'$set': {'status': TaskStatus.PAUSED}}
+    )
+
+    celery_id = task_data.get("celery_id")
+    if celery_id:
+        from app import celerytask
+        celerytask.celery.control.revoke(celery_id, signal='SIGTERM', terminate=True)
+
+
+def resume_task(task_id):
+    """恢复任务：将同一 task_id 重新提交 Celery，任务内部会跳过已完成阶段"""
+    task_data = get_task_data(task_id)
+    if not task_data:
+        raise Exception("没有找到 task_id: {}".format(task_id))
+    if task_data["status"] != TaskStatus.PAUSED:
+        raise Exception("task_id: {} 不是暂停状态".format(task_id))
+
+    from app import celerytask
+    type_map = {
+        TaskType.DOMAIN: CeleryAction.DOMAIN_TASK,
+        TaskType.IP: CeleryAction.IP_TASK,
+        TaskType.FOFA: CeleryAction.FOFA_TASK,
+        TaskType.ASSET_SITE_ADD: CeleryAction.ADD_ASSET_SITE_TASK,
+        TaskType.ASSET_SITE_UPDATE: CeleryAction.ASSET_SITE_UPDATE,
+        TaskType.ASSET_WIH_UPDATE: CeleryAction.ASSET_WIH_UPDATE,
+    }
+    celery_action = type_map.get(task_data["type"])
+    if not celery_action:
+        raise Exception("task_id: {} 类型不支持恢复".format(task_id))
+
+    task_data["task_id"] = task_id
+
+    # 先置为 waiting 再提交，避免状态与实际不符
+    utils.conn_db('task').update_one(
+        {'_id': bson.ObjectId(task_id)},
+        {'$set': {'status': TaskStatus.WAITING, 'celery_id': ''}}
+    )
+
+    options = {"celery_action": celery_action, "data": task_data}
+    celery_id = celerytask.arl_task.delay(options=options)
+    utils.conn_db('task').update_one(
+        {'_id': bson.ObjectId(task_id)},
+        {'$set': {'celery_id': str(celery_id)}}
+    )
+    return task_data
+
+
 def restart_task(task_id):
     name_pre = "重新运行-"
     task_data = get_task_data(task_id)

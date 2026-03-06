@@ -9,7 +9,7 @@ from app import utils
 from app.modules import TaskStatus, ErrorMsg, TaskSyncStatus, CeleryAction, TaskTag, TaskType
 from app.helpers import get_options_by_policy_id, submit_task_task,\
     submit_risk_cruising, get_scope_by_scope_id, check_target_in_scope
-from app.helpers.task import get_task_data, restart_task
+from app.helpers.task import get_task_data, restart_task, pause_task, resume_task
 
 ns = Namespace('task', description="资产发现任务信息")
 
@@ -163,7 +163,7 @@ class StopTask(ARLResource):
 
 def stop_task(task_id):
     """任务停止"""
-    done_status = [TaskStatus.DONE, TaskStatus.STOP, TaskStatus.ERROR]
+    done_status = [TaskStatus.DONE, TaskStatus.STOP, TaskStatus.ERROR, TaskStatus.PAUSED]
 
     task_data = utils.conn_db('task').find_one({'_id': ObjectId(task_id)})
     if not task_data:
@@ -201,7 +201,7 @@ class DeleteTask(ARLResource):
         """
         任务删除
         """
-        done_status = [TaskStatus.DONE, TaskStatus.STOP, TaskStatus.ERROR]
+        done_status = [TaskStatus.DONE, TaskStatus.STOP, TaskStatus.ERROR, TaskStatus.PAUSED]
         args = self.parse_args(delete_task_fields)
         task_id_list = args.pop('task_id')
         del_task_data_flag = args.pop('del_task_data')
@@ -415,7 +415,7 @@ class TaskRestart(ARLResource):
         """
         任务重启
         """
-        done_status = [TaskStatus.DONE, TaskStatus.STOP, TaskStatus.ERROR]
+        done_status = [TaskStatus.DONE, TaskStatus.STOP, TaskStatus.ERROR, TaskStatus.PAUSED]
         args = self.parse_args(restart_task_fields)
         task_id_list = args.pop('task_id')
 
@@ -434,5 +434,53 @@ class TaskRestart(ARLResource):
             return utils.build_ret(ErrorMsg.Error, {"error": str(e)})
 
         return utils.build_ret(ErrorMsg.Success, {"task_id": task_id_list})
+
+
+pause_task_fields = ns.model('PauseTask', {
+    'task_id': fields.String(required=True, description="任务ID")
+})
+
+
+@ns.route('/pause/')
+class TaskPause(ARLResource):
+    @auth
+    @ns.expect(pause_task_fields)
+    def post(self):
+        """
+        任务暂停
+        """
+        args = self.parse_args(pause_task_fields)
+        task_id = args.pop('task_id')
+
+        try:
+            pause_task(task_id)
+        except Exception as e:
+            return utils.build_ret(ErrorMsg.Error, {"error": str(e)})
+
+        return utils.build_ret(ErrorMsg.Success, {"task_id": task_id})
+
+
+resume_task_fields = ns.model('ResumeTask', {
+    'task_id': fields.String(required=True, description="任务ID")
+})
+
+
+@ns.route('/resume/')
+class TaskResume(ARLResource):
+    @auth
+    @ns.expect(resume_task_fields)
+    def post(self):
+        """
+        任务恢复
+        """
+        args = self.parse_args(resume_task_fields)
+        task_id = args.pop('task_id')
+
+        try:
+            resume_task(task_id)
+        except Exception as e:
+            return utils.build_ret(ErrorMsg.Error, {"error": str(e)})
+
+        return utils.build_ret(ErrorMsg.Success, {"task_id": task_id})
 
 

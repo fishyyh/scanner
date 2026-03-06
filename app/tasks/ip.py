@@ -232,11 +232,25 @@ class IPTask(CommonTask):
             item["save_date"] = utils.curr_date()
             utils.conn_db('vuln').insert_one(item)
 
+    def _reload_ip_info_from_db(self):
+        """恢复任务时从数据库重载 IP 信息到内存"""
+        raw_list = list(utils.conn_db('ip').find({'task_id': self.task_id}))
+        for raw in raw_list:
+            self.ip_info_list.append(raw)
+            self.ip_set.add(raw.get("ip", ""))
+
     def run(self):
         base_update = self.base_update_task
-        base_update.update_task_field("start_time", utils.curr_date())
+
+        task_doc = utils.conn_db('task').find_one({'_id': ObjectId(self.task_id)})
+        done_services = {s['name'] for s in task_doc.get('service', [])}
+
+        # 首次运行才设置 start_time
+        if not done_services:
+            base_update.update_task_field("start_time", utils.curr_date())
+
         '''***端口扫描开始***'''
-        if self.options.get("port_scan"):
+        if self.options.get("port_scan") and "port_scan" not in done_services:
             base_update.update_task_field("status", "port_scan")
             t1 = time.time()
             self.port_scan()
@@ -244,30 +258,40 @@ class IPTask(CommonTask):
             base_update.update_services("port_scan", elapse)
 
         # 存储服务信息
-        if self.options.get("service_detection"):
+        if self.options.get("service_detection") and "port_scan" not in done_services:
             self.save_service_info()
 
+        # 如果端口扫描已完成，从 DB 重载 ip_info_list 供后续阶段使用
+        if "port_scan" in done_services and not self.ip_info_list:
+            self._reload_ip_info_from_db()
+
         '''***证书获取开始***'''
-        if self.options.get("ssl_cert"):
+        if self.options.get("ssl_cert") and "ssl_cert" not in done_services:
             base_update.update_task_field("status", "ssl_cert")
             t1 = time.time()
             self.ssl_cert()
             elapse = time.time() - t1
             base_update.update_services("ssl_cert", elapse)
 
-        base_update.update_task_field("status", "find_site")
-        t1 = time.time()
-        self.find_site()
-        elapse = time.time() - t1
-        base_update.update_services("find_site", elapse)
+        if "find_site" not in done_services:
+            base_update.update_task_field("status", "find_site")
+            t1 = time.time()
+            self.find_site()
+            elapse = time.time() - t1
+            base_update.update_services("find_site", elapse)
+        else:
+            # 从 DB 重建 site_list（简化：从 site 集合加载）
+            site_docs = list(utils.conn_db('site').find({'task_id': self.task_id}, {'site': 1}))
+            self.site_list = [d["site"] for d in site_docs if d.get("site")]
 
         web_site_fetch = WebSiteFetch(task_id=self.task_id,
                                       sites=self.site_list,
                                       options=self.options)
-        web_site_fetch.run()
+        if "find_site" not in done_services:
+            web_site_fetch.run()
 
         """服务识别（python）实现"""
-        if self.options.get("npoc_service_detection"):
+        if self.options.get("npoc_service_detection") and "npoc_service_detection" not in done_services:
             base_update.update_task_field("status", "npoc_service_detection")
             t1 = time.time()
             self.npoc_service_detection()
@@ -275,7 +299,7 @@ class IPTask(CommonTask):
             base_update.update_services("npoc_service_detection", elapse)
 
         """ *** npoc 调用 """
-        if self.options.get("poc_config"):
+        if self.options.get("poc_config") and "poc_run" not in done_services:
             base_update.update_task_field("status", "poc_run")
             t1 = time.time()
             web_site_fetch.risk_cruising(self.npoc_service_target_set)
@@ -283,7 +307,7 @@ class IPTask(CommonTask):
             base_update.update_services("poc_run", elapse)
 
         """弱口令爆破服务"""
-        if self.options.get("brute_config"):
+        if self.options.get("brute_config") and "weak_brute" not in done_services:
             base_update.update_task_field("status", "weak_brute")
             t1 = time.time()
             self.brute_config()
