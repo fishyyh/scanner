@@ -91,7 +91,13 @@ def http_req(url, method='get', **kwargs):
         timeout = kwargs.get("timeout")
         if len(timeout) > 1 and timeout[1]:
             timeout = timeout[1]
-        patch_content(conn, timeout)
+        try:
+            patch_content(conn, timeout)
+        except Exception:
+            # stream=True 时如果读取 body 失败，必须关闭连接
+            # 否则连接不会归还连接池，导致连接泄漏
+            conn.close()
+            raise
 
     return conn
 

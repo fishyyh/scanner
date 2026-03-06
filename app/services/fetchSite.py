@@ -23,9 +23,9 @@ class FetchSite(BaseThread):
         self.fingerprint_list = load_fingerprint()
         self.http_timeout = http_timeout
         if http_timeout is None:
-            self.http_timeout = (5, 10)
+            self.http_timeout = (10.1, 30.1)
         # favicon 超时更短，非关键数据
-        self.favicon_timeout = (3, 6)
+        self.favicon_timeout = (5, 8)
 
     def _fetch_fingerprint(self, item, content):
         favicon_hash = item["favicon"].get("hash", 0)
@@ -53,19 +53,21 @@ class FetchSite(BaseThread):
         if finger:
             item["finger"] = finger
 
-    def _http_req_with_retry(self, url, retries=2):
-        """带重试的 HTTP 请求，确保网络异常不会直接丢失目标"""
+    def _http_req_with_retry(self, url):
+        """带重试的 HTTP 请求，第二次用更长超时"""
+        # 第一次正常超时，第二次加倍
+        timeouts = [self.http_timeout, (self.http_timeout[0], self.http_timeout[1] * 2)]
         last_err = None
-        for attempt in range(retries):
+        for attempt, timeout in enumerate(timeouts):
             try:
-                return utils.http_req(url, timeout=self.http_timeout)
+                return utils.http_req(url, timeout=timeout)
             except Exception as e:
                 last_err = e
-                if attempt < retries - 1:
-                    logger.debug("retry fetch on {}: {}".format(url, e))
-                    time.sleep(0.5)
+                if attempt < len(timeouts) - 1:
+                    logger.debug("retry fetch on {} (timeout={}): {}".format(url, timeout, e))
+                    time.sleep(1)
 
-        logger.warning("fetch failed on {} after {} retries: {}".format(url, retries, last_err))
+        logger.warning("fetch failed on {}: {}".format(url, last_err))
         return None
 
     def work(self, site, max_redirect=5):

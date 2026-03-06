@@ -1,7 +1,6 @@
 import threading
-import collections
-import time
 import requests.exceptions
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from lxml import etree
 from app import utils
 from app.modules import DomainInfo
@@ -11,7 +10,6 @@ logger = utils.get_logger()
 class BaseThread(object):
     def __init__(self, targets, concurrency=6):
         self.concurrency = concurrency
-        self.semaphore = threading.Semaphore(concurrency)
         self.targets = targets
 
     def work(self, site):
@@ -33,34 +31,34 @@ class BaseThread(object):
         except BaseException as e:
             logger.warning("BaseException on {}".format(url))
             raise e
-        finally:
-            self.semaphore.release()
 
     def _run(self):
-        deque = collections.deque()
-        cnt = 0
-
+        targets = []
         for target in self.targets:
             if isinstance(target, str):
                 target = target.strip()
-
             if not target:
                 continue
+            targets.append(target)
 
-            cnt += 1
-            logger.debug("[{}/{}] work on {}".format(cnt, len(self.targets), target))
+        total = len(targets)
+        # 使用 Semaphore 控制提交节奏，避免全量堆积到线程池队列
+        semaphore = threading.Semaphore(self.concurrency * 2)
 
-            self.semaphore.acquire()
-            t1 = threading.Thread(target=self._work, args=(target,))
-            t1.daemon = True
-            t1.start()
-            deque.append(t1)
+        with ThreadPoolExecutor(max_workers=self.concurrency) as executor:
+            futures = {}
+            for cnt, target in enumerate(targets, 1):
+                semaphore.acquire()
+                logger.debug("[{}/{}] work on {}".format(cnt, total, target))
+                future = executor.submit(self._work, target)
+                future.add_done_callback(lambda f: semaphore.release())
+                futures[future] = target
 
-        # 等待所有线程完成
-        for t in deque:
-            t.join(timeout=120)
-            if t.is_alive():
-                logger.warning("thread still alive after 120s")
+            for future in as_completed(futures):
+                try:
+                    future.result()
+                except Exception as e:
+                    logger.warning("thread error on {}: {}".format(futures[future], e))
 
 
 class ThreadMap(BaseThread):
