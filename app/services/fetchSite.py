@@ -191,17 +191,17 @@ def fetch_site(sites, concurrency=None, http_timeout=None):
     from app.services import finger_db_cache
     finger_db_cache.update_cache()
 
-    # 根据目标数量动态调整并发：少量目标用小并发，大量目标提高并发
+    # 根据目标数量动态调整并发，适配低带宽环境
     if concurrency is None:
         target_count = len(sites)
         if target_count <= 50:
-            concurrency = 15
+            concurrency = 6
         elif target_count <= 200:
-            concurrency = 30
+            concurrency = 10
         elif target_count <= 1000:
-            concurrency = 50
+            concurrency = 15
         else:
-            concurrency = 80
+            concurrency = 20
 
     logger.info("fetch_site targets:{} concurrency:{}".format(len(sites), concurrency))
     f = FetchSite(sites, concurrency=concurrency, http_timeout=http_timeout)
